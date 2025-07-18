@@ -65,18 +65,23 @@ class PDFProcessor:
         except Exception as e:
             self.log_error(f'保存收货单号时出错: {str(e)}')
     
-    def save_pages_to_file(self, vendor, receipt, pages, base_dir):
+    def save_pages_to_file(self, vendor, receipt, pages, base_dir, rev_date):
         if receipt in self.processed_receipts:
             self.log_info(f'跳过已处理的收货单号: {receipt}')
             return receipt  # 修改：返回跳过的收货单号
             
         safe_vendor_name = re.sub(r'[<>:"/\\|?*]', '_', vendor)
+        # 创建供应商目录
         vendor_dir = os.path.join(base_dir, safe_vendor_name)
+        # 创建日期目录
+        date_dir = os.path.join(vendor_dir, rev_date) if rev_date else vendor_dir
         
         if not os.path.exists(vendor_dir):
             os.makedirs(vendor_dir)
+        if not os.path.exists(date_dir):
+            os.makedirs(date_dir)
             
-        output_path = os.path.join(vendor_dir, f'{receipt}.pdf')
+        output_path = os.path.join(date_dir, f'{receipt}.pdf')
         writer = PyPDF2.PdfWriter()
         
         for page in pages:
@@ -137,6 +142,10 @@ class PDFProcessor:
                         receipt_match = re.search(r'收货单号\s*RF:\s*(RFAH7970\d+)', text)
                         new_receipt = receipt_match.group(1) if receipt_match else None
                         
+                        # 提取收货日期
+                        rev_date_match = re.search(r'收货日期\s*Rev\. Date:\s*(\d{4}-\d{2}-\d{2})', text)
+                        new_rev_date = rev_date_match.group(1) if rev_date_match else None
+                        
                         # 使用多个正则表达式模式查找供应商信息
                         patterns = [
                             r'供应商[/\\]?Vendor[：:](.*?)\n',
@@ -160,7 +169,7 @@ class PDFProcessor:
                         # 如果找到新的收货单号或供应商，保存当前缓存的页面
                         if (new_receipt and new_receipt != current_receipt) or (new_vendor and new_vendor != current_vendor):
                             if current_vendor and current_receipt and page_buffer:
-                                skipped = self.save_pages_to_file(current_vendor, current_receipt, page_buffer, self.current_output_dir)
+                                skipped = self.save_pages_to_file(current_vendor, current_receipt, page_buffer, self.current_output_dir, new_rev_date)
                                 if skipped:
                                     skipped_receipts.add(skipped)
                                 else:
@@ -169,6 +178,7 @@ class PDFProcessor:
                             
                             current_receipt = new_receipt or current_receipt
                             current_vendor = new_vendor or current_vendor
+                            current_rev_date = new_rev_date  # 保存当前收货日期
                         
                         # 将当前页面添加到缓存
                         if current_vendor and current_receipt:
@@ -176,7 +186,7 @@ class PDFProcessor:
                     
                     # 保存最后一组页面
                     if current_vendor and current_receipt and page_buffer:
-                        skipped = self.save_pages_to_file(current_vendor, current_receipt, page_buffer, self.current_output_dir)
+                        skipped = self.save_pages_to_file(current_vendor, current_receipt, page_buffer, self.current_output_dir, current_rev_date)
                         if skipped:
                             skipped_receipts.add(skipped)
                         else:
